@@ -1,27 +1,52 @@
 """
-SpineGuard API - Интеграция Mini App с существующим ботом
+SpineGuard API - Standalone версия для Render
+Без зависимости от bot.py
 """
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, JSON, Float, ForeignKey
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
 import json
-
-# Импортируем модели из твоего бота
-from bot import User, PsychologicalProfile, Base
+import os
 
 app = Flask(__name__)
 CORS(app)
 
-# Подключаемся к той же БД что и бот
+# Модели базы данных (скопированы из bot.py)
+Base = declarative_base()
+
+class User(Base):
+    __tablename__ = 'users'
+    id = Column(Integer, primary_key=True)
+    telegram_id = Column(String, unique=True)
+    username = Column(String)
+    token_balance = Column(Float, default=0.0)
+    psychological_profile = relationship("PsychologicalProfile", back_populates="user", uselist=False)
+
+class PsychologicalProfile(Base):
+    __tablename__ = 'psychological_profiles'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), unique=True)
+    stress_factors = Column(JSON, default=dict)
+    emotional_patterns = Column(JSON, default=dict)
+    last_updated = Column(DateTime, default=datetime.utcnow)
+    user = relationship("User", back_populates="psychological_profile")
+
+# Подключение к БД (на Render будет создана пустая)
 engine = create_engine('sqlite:///spineguard.db')
+Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
 
 # Загружаем упражнения
-with open('exercises.json', 'r', encoding='utf-8') as f:
-    EXERCISES = json.load(f)
+try:
+    with open('exercises.json', 'r', encoding='utf-8') as f:
+        EXERCISES = json.load(f)
+except FileNotFoundError:
+    EXERCISES = []
+    print("⚠️ Файл exercises.json не найден. Используем пустой массив.")
 
 # ============================================
 # API ENDPOINTS
@@ -38,7 +63,27 @@ def get_user_data(telegram_id):
         
         if not user:
             session.close()
-            return jsonify({'error': 'User not found'}), 404
+            # Возвращаем дефолтные данные если пользователя нет
+            return jsonify({
+                'success': True,
+                'user': {
+                    'name': 'Пользователь',
+                    'telegram_id': telegram_id,
+                    'tokens': 0,
+                    'status': 'Отлично',
+                    'streak': 0,
+                    'level': 1,
+                    'exercises_completed': 0
+                },
+                'psych_map': {
+                    'stress_factors': {},
+                    'emotions': {},
+                    'updated_at': None
+                },
+                'today': {'tokens': 0, 'exercises': 0},
+                'changes': {'tokens': 0, 'exercises': 0},
+                'reward_progress': 0
+            })
         
         profile = user.psychological_profile
         
@@ -49,26 +94,19 @@ def get_user_data(telegram_id):
                 'name': user.username or 'Пользователь',
                 'telegram_id': user.telegram_id,
                 'tokens': int(user.token_balance),
-                'status': 'Отлично',  # Можно добавить логику определения
-                # Для streak нужно добавить поле в БД, пока ставим 0
+                'status': 'Отлично',
                 'streak': 0,
-                'level': 1,  # Можно рассчитывать от токенов
-                'exercises_completed': 0  # Добавить счетчик в БД
+                'level': 1,
+                'exercises_completed': 0
             },
             'psych_map': {
                 'stress_factors': profile.stress_factors if profile else {},
                 'emotions': profile.emotional_patterns if profile else {},
                 'updated_at': profile.last_updated.isoformat() if profile else None
             },
-            'today': {
-                'tokens': 0,  # Нужна статистика по дням
-                'exercises': 0
-            },
-            'changes': {
-                'tokens': 0,
-                'exercises': 0
-            },
-            'reward_progress': 0  # Streak % 7
+            'today': {'tokens': 0, 'exercises': 0},
+            'changes': {'tokens': 0, 'exercises': 0},
+            'reward_progress': 0
         }
         
         session.close()
@@ -108,7 +146,7 @@ def complete_exercise():
             session.close()
             return jsonify({'error': 'User not found'}), 404
         
-        # Начисляем токены (как в боте)
+        # Начисляем токены
         tokens_earned = 20
         user.token_balance += tokens_earned
         session.commit()
@@ -162,7 +200,8 @@ def health_check():
     return jsonify({
         'status': 'ok',
         'message': 'SpineGuard API is running',
-        'timestamp': datetime.now().isoformat()
+        'timestamp': datetime.now().isoformat(),
+        'exercises_count': len(EXERCISES)
     })
 
 # ============================================
@@ -170,8 +209,11 @@ def health_check():
 # ============================================
 
 if __name__ == '__main__':
+    import os
+    
     print("🚀 Запускаем SpineGuard API Server...")
-    print("📡 API доступен на http://localhost:5000")
+    port = int(os.environ.get('PORT', 5000))
+    print(f"📡 API доступен на порт {port}")
     print("")
     print("📋 Endpoints:")
     print("   GET  /api/user/<telegram_id> - Данные пользователя")
@@ -182,4 +224,4 @@ if __name__ == '__main__':
     print("")
     print("✅ Сервер готов к работе!")
     
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=port, debug=False)
