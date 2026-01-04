@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1,
+    "title": "Разминка шеи",
+    "description": "Медленно поворачивай голову вправо-влево, затем наклоны. 10 раз.",
+    "video_url": "https://www.youtube.com/watch?v=123example",
+    "target_area": "шея",
+    "access_level": "free"
+  },
+  {
+    "id": 2,
+    "title": "Кошка-корова",
+    "description": "На четвереньках прогибай и выгибай спину. 10 повторений.",
+    "video_url": "https://www.youtube.com/watch?v=456example",
+    "target_area": "спина",
+    "access_level": "free"
+  },
+  {
+    "id": 3,
+    "title": "Растяжка плеч",
+    "description": "Одной рукой тяни другую через грудь. По 20 секунд на сторону.",
+    "video_url": "https://www.youtube.com/watch?v=789example",
+    "target_area": "плечи",
+    "access_level": "free"
+  }
+]
