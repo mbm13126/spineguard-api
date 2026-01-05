@@ -194,6 +194,54 @@ def get_psych_map(telegram_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/sync-user', methods=['POST'])
+def sync_user():
+    """
+    Синхронизация пользователя из локального бота
+    """
+    try:
+        data = request.json
+        telegram_id = data.get('telegram_id')
+        username = data.get('username')
+        
+        if not telegram_id:
+            return jsonify({'error': 'telegram_id required'}), 400
+        
+        session = Session()
+        
+        # Проверяем существует ли пользователь
+        user = session.query(User).filter_by(telegram_id=telegram_id).first()
+        
+        if not user:
+            # Создаём нового пользователя
+            user = User(telegram_id=telegram_id, username=username)
+            session.add(user)
+            session.flush()  # Получаем ID
+            
+            # Создаём профиль
+            profile = PsychologicalProfile(user_id=user.id)
+            session.add(profile)
+            
+            session.commit()
+            message = 'User created'
+        else:
+            # Обновляем username если изменился
+            if username and user.username != username:
+                user.username = username
+                session.commit()
+            message = 'User already exists'
+        
+        session.close()
+        
+        return jsonify({
+            'success': True,
+            'message': message,
+            'user_id': user.id
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+        
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """Проверка работы API"""
