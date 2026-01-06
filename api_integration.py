@@ -198,7 +198,6 @@ def get_psych_map(telegram_id):
 def sync_user():
     """
     Синхронизация пользователя из локального бота
-    Вызывается когда пользователь пишет /start боту
     """
     try:
         data = request.json
@@ -228,7 +227,6 @@ def sync_user():
             session.add(profile)
             
             session.commit()
-            print(f"✅ Создан пользователь на Render: {username} (ID: {telegram_id})")
             message = 'User created on Render'
         else:
             # Обновляем username если изменился
@@ -237,20 +235,27 @@ def sync_user():
                 session.commit()
             message = 'User already exists'
         
-        session.close()
-        
-        return jsonify({
+        # ВАЖНО: Сохраняем данные ДО закрытия сессии
+        result = {
             'success': True,
             'message': message,
             'user': {
                 'telegram_id': user.telegram_id,
-                'username': user.username
+                'username': user.username,
+                'tokens': int(user.token_balance)
             }
-        })
+        }
+        
+        session.close()
+        
+        return jsonify(result)
         
     except Exception as e:
         print(f"❌ Ошибка sync-user: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+        
         
 @app.route('/api/health', methods=['GET'])
 def health_check():
