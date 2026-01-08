@@ -287,7 +287,6 @@ def fix_user(telegram_id):
             
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-```
         
 @app.route('/api/health', methods=['GET'])
 def health_check():
