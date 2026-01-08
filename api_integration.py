@@ -194,6 +194,53 @@ def health_check():
         'exercises_count': len(EXERCISES)
     })
 
+from openai import OpenAI
+
+client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+
+@app.route('/api/personalized-exercises/<telegram_id>', methods=['GET'])
+def personalized_exercises(telegram_id):
+    session = Session()
+    user = session.query(User).filter_by(telegram_id=telegram_id).first()
+    session.close()
+
+    profile_text = "Нет данных о психологическом профиле."
+    if user and user.psychological_profile:
+        stress = user.psychological_profile.stress_factors or {}
+        emotions = user.psychological_profile.emotional_patterns or {}
+        profile_text = f"Стресс-факторы: {json.dumps(stress, ensure_ascii=False)}. Эмоциональные паттерны: {json.dumps(emotions, ensure_ascii=False)}."
+
+    prompt = f"""
+    Ты — эксперт по здоровью спины и осанки.
+    {profile_text}
+    
+    Сгенерируй 5-7 простых упражнений (1-3 минуты) для улучшения осанки и снижения стресса.
+    Упражнения безопасные, без инвентаря.
+    Формат строго JSON массив объектов:
+    [
+      {{
+        "title": "Короткое название",
+        "description": "Пошаговое описание выполнения",
+        "duration": "2 минуты",
+        "benefit": "Снижает напряжение в шее"
+      }}
+    ]
+    Только JSON, без лишнего текста.
+    """
+
+    try:
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.8,
+            max_tokens=1000
+        )
+        exercises = json.loads(completion.choices[0].message.content)
+        return jsonify({'success': True, 'exercises': exercises})
+    except Exception as e:
+        print(f"GPT error: {e}")
+        return jsonify({'success': True, 'exercises': EXERCISES[:5]})
+        
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
