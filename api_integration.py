@@ -256,6 +256,50 @@ def sync_user():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/create-user/<telegram_id>/<username>', methods=['GET'])
+def create_user_simple(telegram_id, username):
+    """
+    Простое создание пользователя без ошибок сессии
+    """
+    try:
+        session = Session()
+        
+        # Проверяем существует ли
+        existing = session.query(User).filter_by(telegram_id=telegram_id).first()
+        if existing:
+            session.close()
+            return jsonify({'error': 'User already exists', 'username': existing.username})
+        
+        # Создаём нового
+        new_user = User(
+            telegram_id=telegram_id,
+            username=username,
+            token_balance=0.0
+        )
+        session.add(new_user)
+        session.commit()
+        
+        # Получаем ID до закрытия сессии
+        user_id = new_user.id
+        
+        # Создаём профиль
+        profile = PsychologicalProfile(user_id=user_id)
+        session.add(profile)
+        session.commit()
+        
+        result = {
+            'success': True,
+            'message': 'User created',
+            'telegram_id': telegram_id,
+            'username': username
+        }
+        
+        session.close()
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/fix-user/<telegram_id>', methods=['GET'])
 def fix_user(telegram_id):
     """
