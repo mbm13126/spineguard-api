@@ -255,7 +255,39 @@ def sync_user():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/fix-user/<telegram_id>', methods=['GET'])
+def fix_user(telegram_id):
+    """
+    Временный endpoint для обновления username
+    """
+    try:
+        session = Session()
+        user = session.query(User).filter_by(telegram_id=telegram_id).first()
         
+        if user:
+            user.username = 'MBM_13'
+            user.token_balance = 0.0
+            
+            # Сохраняем ДО получения данных
+            session.commit()
+            
+            result = {
+                'success': True,
+                'message': 'User updated',
+                'username': user.username,
+                'tokens': int(user.token_balance)
+            }
+            
+            session.close()
+            return jsonify(result)
+        else:
+            session.close()
+            return jsonify({'error': 'User not found'}), 404
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+```
         
 @app.route('/api/health', methods=['GET'])
 def health_check():
