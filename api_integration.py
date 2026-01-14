@@ -15,6 +15,8 @@ import os
 app = Flask(__name__)
 CORS(app)  # Разрешаем запросы из Mini App
 
+app.config['JSON_AS_ASCII'] = False
+
 Base = declarative_base()
 
 class User(Base):
