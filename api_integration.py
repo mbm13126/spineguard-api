@@ -73,6 +73,20 @@ def sync_user():
     session.close()
     return jsonify({'success': True})
 
+@app.route('/api/update-psych-map', methods=['POST'])
+def update_psych_map():
+    data = request.json
+    telegram_id = data['telegram_id']
+    new_map = data['psych_map']
+    
+    session = Session()
+    user = session.query(User).filter_by(telegram_id=telegram_id).first()
+    if user and user.psychological_profile:
+        user.psychological_profile.psych_map = new_map
+        session.commit()
+    session.close()
+    return jsonify({'success': True})
+
 @app.route('/api/add-tokens', methods=['POST'])
 def add_tokens():
     """Для онбординга и других начислений из бота"""
