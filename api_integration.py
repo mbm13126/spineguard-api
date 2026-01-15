@@ -2,7 +2,6 @@
 SpineGuard API — Standalone, production-ready версия
 SQLite БД только здесь. Всё остальное через HTTP.
 """
-
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, JSON, Float, ForeignKey
@@ -14,7 +13,6 @@ import os
 
 app = Flask(__name__)
 CORS(app)  # Разрешаем запросы из Mini App
-
 app.config['JSON_AS_ASCII'] = False
 
 Base = declarative_base()
@@ -29,6 +27,8 @@ class User(Base):
     last_exercise_date = Column(DateTime, nullable=True)
     exercises_completed = Column(Integer, default=0)
     psychological_profile = relationship("PsychologicalProfile", back_populates="user", uselist=False)
+    
+    # ПОЛЯ ДЛЯ ДЕРЕВА И ЕЖЕДНЕВНОГО STREAK
     current_streak = Column(Integer, default=0)
     last_checkin_date = Column(DateTime, nullable=True)
     trees_planted = Column(Integer, default=0)
@@ -54,6 +54,28 @@ except FileNotFoundError:
     EXERCISES = []
     print("⚠️ exercises.json не найден — упражнения пустые")
 
+# ФУНКЦИЯ ОБНОВЛЕНИЯ STREAK ДЛЯ ДЕРЕВА
+def update_streak(session, user):
+    today = datetime.utcnow().date()
+    last = user.last_checkin_date.date() if user.last_checkin_date else None
+    
+    if last == today:
+        return user.current_streak  # Уже чек-ин сегодня
+    
+    if last == today - timedelta(days=1):
+        user.current_streak += 1
+    else:
+        user.current_streak = 1  # Новый старт
+    
+    user.last_checkin_date = datetime.utcnow()
+    
+    if user.current_streak % 30 == 0 and user.current_streak > 0:
+        user.trees_planted += 1
+        print(f"🌳 Дерево посажено для {user.telegram_id}! Всего: {user.trees_planted}")
+    
+    session.commit()
+    return user.current_streak
+
 # ==================== ENDPOINTS ====================
 
 @app.route('/api/sync-user', methods=['POST'])
@@ -64,7 +86,6 @@ def sync_user():
     username = data.get('username')
     if not telegram_id:
         return jsonify({'error': 'telegram_id required'}), 400
-
     session = Session()
     user = session.query(User).filter_by(telegram_id=telegram_id).first()
     if not user:
@@ -83,7 +104,7 @@ def update_psych_map():
     data = request.json
     telegram_id = data['telegram_id']
     new_map = data['psych_map']
-    
+   
     session = Session()
     user = session.query(User).filter_by(telegram_id=telegram_id).first()
     if user and user.psychological_profile:
@@ -99,16 +120,13 @@ def add_tokens():
     telegram_id = data.get('telegram_id')
     amount = data.get('amount', 0)
     reason = data.get('reason', '')
-
     if not telegram_id or amount <= 0:
         return jsonify({'error': 'invalid data'}), 400
-
     session = Session()
     user = session.query(User).filter_by(telegram_id=telegram_id).first()
     if not user:
         session.close()
         return jsonify({'error': 'user not found'}), 404
-
     user.token_balance += amount
     session.commit()
     session.close()
@@ -118,7 +136,6 @@ def add_tokens():
 def get_user_data(telegram_id):
     session = Session()
     user = session.query(User).filter_by(telegram_id=telegram_id).first()
-
     if not user:
         # Дефолты для нового пользователя
         default = {
@@ -129,17 +146,17 @@ def get_user_data(telegram_id):
                 'status': 'Отлично',
                 'streak': 0,
                 'level': 1,
-                'exercises_completed': 0
+                'exercises_completed': 0,
+                'current_streak': 0,
+                'trees_planted': 0
             },
             'psych_map': {'stress_factors': {}, 'emotions': {}, 'updated_at': None},
             'reward_progress': 0
         }
         session.close()
         return jsonify(default)
-
     profile = user.psychological_profile or {}
     level = (int(user.token_balance) // 100) + 1
-
     data = {
         'success': True,
         'user': {
@@ -148,7 +165,9 @@ def get_user_data(telegram_id):
             'status': 'Отлично',
             'streak': user.streak or 0,
             'level': level,
-            'exercises_completed': user.exercises_completed or 0
+            'exercises_completed': user.exercises_completed or 0,
+            'current_streak': user.current_streak or 0,
+            'trees_planted': user.trees_planted or 0
         },
         'psych_map': {
             'stress_factors': profile.stress_factors or {},
@@ -170,17 +189,14 @@ def complete_exercise():
     telegram_id = data.get('telegram_id')
     if not telegram_id:
         return jsonify({'error': 'telegram_id required'}), 400
-
     session = Session()
     user = session.query(User).filter_by(telegram_id=telegram_id).first()
     if not user:
         session.close()
         return jsonify({'error': 'user not found'}), 404
-
     tokens_earned = 20
     user.token_balance += tokens_earned
     user.exercises_completed += 1
-
     today = datetime.utcnow().date()
     if user.last_exercise_date:
         last = user.last_exercise_date.date()
@@ -193,16 +209,43 @@ def complete_exercise():
     else:
         user.streak = 1
     user.last_exercise_date = datetime.utcnow()
-
     session.commit()
     session.close()
-
     return jsonify({
         'success': True,
         'tokens_earned': tokens_earned,
         'total_tokens': int(user.token_balance),
         'streak': user.streak,
         'message': 'Упражнение засчитано!'
+    })
+
+# НОВЫЙ ЭНДПОИНТ ДЛЯ ЕЖЕДНЕВНОГО ЧЕК-ИНА (ДЕРЕВО)
+@app.route('/api/daily-checkin', methods=['POST'])
+def daily_checkin():
+    data = request.json
+    telegram_id = data.get('telegram_id')
+    
+    if not telegram_id:
+        return jsonify({'error': 'telegram_id required'}), 400
+    
+    session = Session()
+    user = session.query(User).filter_by(telegram_id=telegram_id).first()
+    
+    if not user:
+        session.close()
+        return jsonify({'error': 'User not found'}), 404
+    
+    streak = update_streak(session, user)
+    session.close()
+    
+    planted_today = (streak % 30 == 0 and streak > 0)
+    
+    return jsonify({
+        'success': True,
+        'current_streak': streak,
+        'trees_planted': user.trees_planted,
+        'planted_today': planted_today,
+        'message': 'Чек-ин засчитан! Твоё дерево растёт 🌱'
     })
 
 @app.route('/api/health', methods=['GET'])
@@ -214,7 +257,6 @@ def health_check():
     })
 
 from openai import OpenAI
-
 client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
 @app.route('/api/personalized-exercises/<telegram_id>', methods=['GET'])
@@ -222,17 +264,15 @@ def personalized_exercises(telegram_id):
     session = Session()
     user = session.query(User).filter_by(telegram_id=telegram_id).first()
     session.close()
-
     profile_text = "Нет данных о психологическом профиле."
     if user and user.psychological_profile:
         stress = user.psychological_profile.stress_factors or {}
         emotions = user.psychological_profile.emotional_patterns or {}
         profile_text = f"Стресс-факторы: {json.dumps(stress, ensure_ascii=False)}. Эмоциональные паттерны: {json.dumps(emotions, ensure_ascii=False)}."
-
     prompt = f"""
     Ты — эксперт по здоровью спины и осанки.
     {profile_text}
-    
+   
     Сгенерируй 5-7 простых упражнений (1-3 минуты) для улучшения осанки и снижения стресса.
     Упражнения безопасные, без инвентаря.
     Формат строго JSON массив объектов:
@@ -246,7 +286,6 @@ def personalized_exercises(telegram_id):
     ]
     Только JSON, без лишнего текста.
     """
-
     try:
         completion = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -259,7 +298,7 @@ def personalized_exercises(telegram_id):
     except Exception as e:
         print(f"GPT error: {e}")
         return jsonify({'success': True, 'exercises': EXERCISES[:5]})
-        
+       
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
