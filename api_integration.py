@@ -29,6 +29,9 @@ class User(Base):
     last_exercise_date = Column(DateTime, nullable=True)
     exercises_completed = Column(Integer, default=0)
     psychological_profile = relationship("PsychologicalProfile", back_populates="user", uselist=False)
+    current_streak = Column(Integer, default=0)
+    last_checkin_date = Column(DateTime, nullable=True)
+    trees_planted = Column(Integer, default=0)
 
 class PsychologicalProfile(Base):
     __tablename__ = 'psychological_profiles'
