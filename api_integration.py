@@ -8,6 +8,8 @@ from sqlalchemy import create_engine, Column, Integer, String, DateTime, JSON, F
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime, timedelta
+from xml.etree import ElementTree as ET
+import requests
 import json
 import os
 
@@ -98,6 +100,37 @@ def sync_user():
     session.commit()
     session.close()
     return jsonify({'success': True})
+
+@app.route('/api/pubmed-search', methods=['GET'])
+def pubmed_search():
+    query = request.args.get('query', '')
+    if not query:
+        return jsonify({'error': 'query required'}), 400
+    
+    # Поиск ID статей
+    search_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term={query}&retmax=5&retmode=json"
+    search_response = requests.get(search_url).json()
+    ids = search_response['esearchresult']['idlist']
+    
+    articles = []
+    for pmid in ids:
+        fetch_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id={pmid}&retmode=xml"
+        xml = requests.get(fetch_url).text
+        root = ET.fromstring(xml)
+        
+        title = root.find('.//ArticleTitle').text if root.find('.//ArticleTitle') is not None else 'Нет заголовка'
+        abstract = root.find('.//AbstractText').text if root.find('.//AbstractText') is not None else 'Нет абстракта'
+        year = root.find('.//PubDate/Year').text if root.find('.//PubDate/Year') is not None else 'Неизвестно'
+        
+        articles.append({
+            'pmid': pmid,
+            'title': title,
+            'year': year,
+            'abstract': abstract[:500] + '...' if abstract and len(abstract) > 500 else abstract,
+            'link': f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+        })
+    
+    return jsonify({'success': True, 'articles': articles})
 
 @app.route('/api/update-psych-map', methods=['POST'])
 def update_psych_map():
